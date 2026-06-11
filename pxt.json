@@ -1,6 +1,6 @@
 {
     "name": "smartteam-ml",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "Bloques en español para reaccionar a las clases detectadas por el entrenador SmartTEAM ML (vía USB / Web Serial)",
     "license": "MIT",
     "dependencies": {
