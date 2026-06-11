@@ -2,15 +2,15 @@
  * SmartTEAM ML — bloques para reaccionar a las clases que detecta el
  * entrenador SmartTEAM ML en el navegador.
  *
- * Protocolo (Web Serial, 115200 baudios, una línea por mensaje):
+ * Protocolo (Web Serial, 115200 baudios, una línea por mensaje), siempre
+ * "a pedido": el micro:bit pregunta con "ML?\n" y el navegador responde una
+ * sola línea "ML:<nombre de la clase>\n". Como nunca llega un byte sin
+ * pedirlo, el buffer del micro:bit no se llena aunque el programa se bloquee.
  *
- *   Modo "a pedido" (recomendado): el micro:bit pregunta con "ML?\n"
- *   (bloque "pedir clase ML") y el navegador responde una sola línea
- *   "ML:<nombre de la clase>\n". Como nunca llega un byte sin pedirlo,
- *   el buffer del micro:bit no se llena aunque el programa se bloquee.
- *
- *   Modo "automático" (programas viejos): el navegador empuja
- *   "ML:<nombre de la clase>\n" al cambiar la clase y cada 500 ms.
+ * La extensión sondea sola en segundo plano (un pedido cada ~200 ms), así
+ * los bloques de evento y los reporters están siempre actualizados sin que
+ * el programa tenga que pedir nada. El bloque "pedir clase ML" fuerza un
+ * pedido inmediato cuando se necesita la respuesta más fresca posible.
  *
  * Cuando no hay detección (nadie frente a la cámara, confianza baja, etc.)
  * el navegador envía la clase especial "none".
@@ -21,6 +21,7 @@ namespace smartteamML {
     const PEDIDO = "ML?"
     const SIN_DETECCION = "none"
     const TIMEOUT_PEDIDO_MS = 500
+    const INTERVALO_SONDEO_MS = 200
 
     let nombres: string[] = []
     let manejadores: (() => void)[] = []
@@ -34,6 +35,26 @@ namespace smartteamML {
         while (inicio < fin && texto.charCodeAt(inicio) <= 32) inicio++
         while (fin > inicio && texto.charCodeAt(fin - 1) <= 32) fin--
         return texto.substr(inicio, fin - inicio)
+    }
+
+    function esperarRespuesta(): void {
+        let esperado = 0
+        while (respuestaPendiente && esperado < TIMEOUT_PEDIDO_MS) {
+            basic.pause(10)
+            esperado += 10
+        }
+        respuestaPendiente = false
+    }
+
+    function solicitar(): void {
+        if (respuestaPendiente) {
+            // ya hay un pedido en vuelo: esperar a que se resuelva
+            esperarRespuesta()
+            return
+        }
+        respuestaPendiente = true
+        serial.writeString(PEDIDO + "\n")
+        esperarRespuesta()
     }
 
     function iniciar(): void {
@@ -53,28 +74,28 @@ namespace smartteamML {
                 if (nombres[i] == clase) manejadores[i]()
             }
         })
+        // Sondeo en segundo plano: mantiene frescos los eventos y reporters
+        // sin que el programa del chico tenga que pedir nada.
+        control.inBackground(function () {
+            while (true) {
+                solicitar()
+                basic.pause(INTERVALO_SONDEO_MS)
+            }
+        })
     }
 
     /**
-     * Pide la clase actual al entrenador y espera la respuesta.
-     * Devuelve la última clase conocida si no llega respuesta a tiempo
-     * (entrenador desconectado o ventana cerrada).
-     * Usalo dentro de "por siempre": el ritmo lo marca tu programa y el
-     * buffer del micro:bit nunca se llena.
+     * Pide la clase actual al entrenador ahora mismo y espera la respuesta
+     * (máximo 500 ms). No suele hacer falta: la extensión ya pregunta sola
+     * en segundo plano. Usalo cuando necesites la lectura más fresca posible
+     * justo antes de decidir.
      */
     //% blockId=smartteam_ml_pedir_clase
     //% block="pedir clase ML"
     //% weight=95
-    export function pedirClaseML(): string {
+    export function pedirClaseML(): void {
         iniciar()
-        respuestaPendiente = true
-        serial.writeString(PEDIDO + "\n")
-        let esperado = 0
-        while (respuestaPendiente && esperado < TIMEOUT_PEDIDO_MS) {
-            basic.pause(10)
-            esperado += 10
-        }
-        return claseActualInterna
+        solicitar()
     }
 
     /**
@@ -103,6 +124,7 @@ namespace smartteamML {
 
     /**
      * La última clase detectada por el entrenador ("none" si no hay detección).
+     * Se actualiza sola gracias al sondeo en segundo plano.
      */
     //% blockId=smartteam_ml_clase_actual
     //% block="clase ML actual"
@@ -114,6 +136,7 @@ namespace smartteamML {
 
     /**
      * Verdadero si la clase detectada en este momento es la indicada.
+     * Se actualiza sola gracias al sondeo en segundo plano.
      * @param nombre el nombre de la clase, igual que en el entrenador
      */
     //% blockId=smartteam_ml_clase_es

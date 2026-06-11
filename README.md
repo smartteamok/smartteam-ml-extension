@@ -3,47 +3,54 @@
 Bloques en español para que el micro:bit reaccione a las clases que detecta el
 **entrenador SmartTEAM ML** en el navegador.
 
-> El micro:bit le **pide** la clase al entrenador con el bloque
-> `pedir clase ML` (modo recomendado), o recibe líneas `ML:<clase>`
-> automáticamente (modo compatible con programas viejos).
+> El micro:bit le **pide** la clase al entrenador (nunca recibe un byte que
+> no haya pedido, así su buffer no se llena). La extensión pregunta sola en
+> segundo plano: los bloques de evento y los reporters se actualizan solos.
 
 ## Bloques
 
 | Bloque | Tipo | Qué hace |
 |---|---|---|
-| `pedir clase ML` | reporter (texto) | **Recomendado.** Pide la clase al entrenador y espera la respuesta. Usalo dentro de `por siempre` |
-| `al detectar clase ML [nombre]` | evento | Se ejecuta cuando llega esa clase (por pedido o automático) |
+| `al detectar clase ML [nombre]` | evento | Se ejecuta cuando el entrenador detecta esa clase |
 | `cuando no se detecta ninguna clase ML` | evento | Se ejecuta cuando se pierde la detección |
-| `clase ML actual` | reporter (texto) | La última clase conocida (`none` si no hay) |
-| `clase ML es [nombre]` | reporter (booleano) | Verdadero si la clase actual es esa |
+| `clase ML actual` | reporter (texto) | La última clase detectada (`none` si no hay). Se actualiza sola |
+| `clase ML es [nombre]` | reporter (booleano) | Verdadero si la clase actual es esa. Se actualiza sola |
+| `pedir clase ML` | acción | Fuerza un pedido inmediato y espera la respuesta (máx. 500 ms). Opcional: útil justo antes de decidir |
 
 El nombre de la clase debe escribirse **igual** que en el entrenador
 (mayúsculas/minúsculas y espacios incluidos).
 
-### ¿Por qué "pedir clase ML" es el modo recomendado?
+### Cómo funciona por dentro
 
-En el modo automático el navegador envía mensajes aunque el micro:bit esté
-ocupado (mostrando un ícono, en una pausa). Si el programa se bloquea un
-rato, el buffer serial del micro:bit se llena y se puede colgar. Con
-`pedir clase ML` el ritmo lo marca tu propio programa: nunca llega un byte
-que no hayas pedido. Programa típico:
+La extensión envía `ML?` al entrenador cada ~200 ms (en segundo plano) y el
+entrenador responde una sola línea con la clase actual. Como el ritmo lo
+marca el micro:bit, el buffer serial nunca se llena aunque tu programa esté
+ocupado con pausas o animaciones. Programa típico, solo con eventos:
+
+```blocks
+smartteamML.alDetectarClase("pulgar arriba", function () {
+    basic.showIcon(IconNames.Happy)
+})
+smartteamML.alDetectarClase("pulgar abajo", function () {
+    basic.showIcon(IconNames.Sad)
+})
+smartteamML.cuandoNoHayDeteccion(function () {
+    basic.clearScreen()
+})
+```
+
+O en estilo encuesta, con el pedido explícito:
 
 ```blocks
 basic.forever(function () {
-    let clase = smartteamML.pedirClaseML()
-    if (clase == "pulgar arriba") {
+    smartteamML.pedirClaseML()
+    if (smartteamML.claseEs("pulgar arriba")) {
         basic.showIcon(IconNames.Happy)
-    } else if (clase == "pulgar abajo") {
-        basic.showIcon(IconNames.Sad)
     } else {
         basic.clearScreen()
     }
 })
 ```
-
-En el panel **micro:bit** del entrenador, dejá el modo en **"A pedido"**
-(es el default). Si tenés un programa viejo grabado que usa solo
-`al detectar clase ML`, cambiá el panel a **"Automático"**.
 
 ## Paso a paso para docentes
 
@@ -81,22 +88,23 @@ ajustar el umbral de confianza.
 - **El micro:bit no reacciona** → verificá que el nombre de la clase en el
   bloque sea idéntico al del entrenador, y que el programa con la extensión
   esté grabado en el micro:bit.
-- **`pedir clase ML` devuelve siempre lo mismo** → el entrenador no está
-  conectado (el bloque devuelve la última clase conocida tras 500 ms de
-  espera). Conectá el micro:bit desde el panel del entrenador.
-- **El micro:bit se cuelga a los pocos segundos** → estás en modo
-  "Automático" con un programa que se bloquea (pausas largas, animaciones).
-  Pasate al bloque `pedir clase ML` con el panel en "A pedido".
+- **La clase no cambia nunca** → el entrenador no está conectado (los
+  bloques conservan la última clase conocida). Conectá el micro:bit desde el
+  panel del entrenador y verificá que el contador de "pedidos respondidos"
+  crece.
+- **Programa grabado con la extensión v0.2 o anterior** → actualizá la
+  extensión en MakeCode (Extensiones → ya instalada → actualizar) y volvé a
+  grabar el `.hex`: el entrenador ahora solo responde a pedidos.
 - **No aparece el botón de conectar** → estás en Safari o Firefox; usá Chrome
   o Edge.
 
 ## Detalles técnicos
 
 - Velocidad: **115200 baudios**, una línea de texto por mensaje.
-- Modo "a pedido": micro:bit → navegador `ML?\n`; navegador → micro:bit una
-  única línea `ML:<clase>\n` por pedido. Timeout del bloque: 500 ms.
-- Modo "automático": el navegador empuja `ML:<clase>\n` al cambiar la clase
-  ganadora y como latido cada 500 ms.
+- micro:bit → navegador: `ML?\n` (sondeo en segundo plano cada ~200 ms, o
+  inmediato con el bloque `pedir clase ML`).
+- navegador → micro:bit: una única línea `ML:<clase>\n` por pedido. Timeout
+  de espera: 500 ms.
 - `none` es la clase reservada para "sin detección" (el navegador la envía
   cuando no hay sujeto o la confianza está por debajo del umbral).
 
